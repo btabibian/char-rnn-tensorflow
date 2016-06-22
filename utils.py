@@ -4,11 +4,11 @@ from six.moves import cPickle
 import numpy as np
 
 class TextLoader():
-    def __init__(self, data_dir, batch_size, seq_length):
+    def __init__(self, data_dir, batch_size, seq_length, left_to_right = True):
         self.data_dir = data_dir
         self.batch_size = batch_size
         self.seq_length = seq_length
-
+        self.left_to_right = left_to_right
         input_file = os.path.join(data_dir, "input.txt")
         vocab_file = os.path.join(data_dir, "vocab.pkl")
         tensor_file = os.path.join(data_dir, "data.npy")
@@ -23,8 +23,12 @@ class TextLoader():
         self.reset_batch_pointer()
 
     def preprocess(self, input_file, vocab_file, tensor_file):
-        with open(input_file, "r") as f:
-            data = f.read()
+        with open(input_file, "rb") as f:
+            data = f.read().decode('utf8')
+            print(self.left_to_right)
+            if self.left_to_right is False:
+              data = '\n'.join(map(lambda x: x[::-1],data.split('\n')))
+
         counter = collections.Counter(data)
         count_pairs = sorted(counter.items(), key=lambda x: -x[1])
         self.chars, _ = zip(*count_pairs)

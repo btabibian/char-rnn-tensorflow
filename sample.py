@@ -14,6 +14,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--save_dir', type=str, default='save',
                        help='model directory to store checkpointed models')
+    parser.add_argument('--output_file', type=str, default='save',
+                       help='output file')
+    parser.add_argument('--write_rl', action="store_true",
+                       help='write output right to left')
     parser.add_argument('-n', type=int, default=500,
                        help='number of characters to sample')
     parser.add_argument('--prime', type=str, default=' ',
@@ -29,14 +33,18 @@ def sample(args):
         saved_args = cPickle.load(f)
     with open(os.path.join(args.save_dir, 'chars_vocab.pkl'), 'rb') as f:
         chars, vocab = cPickle.load(f)
+    output = open(args.output_file,'w',encoding='utf-8')
     model = Model(saved_args, True)
     with tf.Session() as sess:
         tf.initialize_all_variables().run()
         saver = tf.train.Saver(tf.all_variables())
         ckpt = tf.train.get_checkpoint_state(args.save_dir)
         if ckpt and ckpt.model_checkpoint_path:
-            saver.restore(sess, ckpt.model_checkpoint_path)
-            print(model.sample(sess, chars, vocab, args.n, args.prime, args.sample))
-
+            saver.restore(sess, os.path.join(args.save_dir,ckpt.model_checkpoint_path))
+            sample = model.sample(sess, chars, vocab, args.n, args.prime, args.sample)
+            if args.write_rl:
+                output.write('\n'.join(map(lambda x: x[::-1],sample.split('\n'))))
+            output.write('\n')
+    output.close()
 if __name__ == '__main__':
     main()

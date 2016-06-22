@@ -18,6 +18,8 @@ def main():
                        help='directory to store checkpointed models')
     parser.add_argument('--rnn_size', type=int, default=128,
                        help='size of RNN hidden state')
+    parser.add_argument('--read_rl', action="store_true",
+                       help='read input right to left')
     parser.add_argument('--num_layers', type=int, default=2,
                        help='number of layers in the RNN')
     parser.add_argument('--model', type=str, default='lstm',
@@ -35,9 +37,9 @@ def main():
     parser.add_argument('--learning_rate', type=float, default=0.002,
                        help='learning rate')
     parser.add_argument('--decay_rate', type=float, default=0.97,
-                       help='decay rate for rmsprop')                       
+                       help='decay rate for rmsprop')
     parser.add_argument('--init_from', type=str, default=None,
-                       help="""continue training from saved model at this path. Path must contain files saved by previous training process: 
+                       help="""continue training from saved model at this path. Path must contain files saved by previous training process:
                             'config.pkl'        : configuration;
                             'chars_vocab.pkl'   : vocabulary definitions;
                             'checkpoint'        : paths to model file(s) (created by tf).
@@ -48,12 +50,12 @@ def main():
     train(args)
 
 def train(args):
-    data_loader = TextLoader(args.data_dir, args.batch_size, args.seq_length)
+    data_loader = TextLoader(args.data_dir, args.batch_size, args.seq_length, not args.read_rl)
     args.vocab_size = data_loader.vocab_size
-    
+
     # check compatibility if training is continued from previously saved model
     if args.init_from is not None:
-        # check if all necessary files exist 
+        # check if all necessary files exist
         assert os.path.isdir(args.init_from)," %s must be a a path" % args.init_from
         assert os.path.isfile(os.path.join(args.init_from,"config.pkl")),"config.pkl file does not exist in path %s"%args.init_from
         assert os.path.isfile(os.path.join(args.init_from,"chars_vocab.pkl")),"chars_vocab.pkl.pkl file does not exist in path %s" % args.init_from
@@ -67,22 +69,26 @@ def train(args):
         need_be_same=["model","rnn_size","num_layers","seq_length"]
         for checkme in need_be_same:
             assert vars(saved_model_args)[checkme]==vars(args)[checkme],"Command line argument and saved model disagree on '%s' "%checkme
-        
+
         # open saved vocab/dict and check if vocabs/dicts are compatible
         with open(os.path.join(args.init_from, 'chars_vocab.pkl')) as f:
             saved_chars, saved_vocab = cPickle.load(f)
         assert saved_chars==data_loader.chars, "Data and loaded model disagreee on character set!"
         assert saved_vocab==data_loader.vocab, "Data and loaded model disagreee on dictionary mappings!"
-        
+
     with open(os.path.join(args.save_dir, 'config.pkl'), 'wb') as f:
         cPickle.dump(args, f)
     with open(os.path.join(args.save_dir, 'chars_vocab.pkl'), 'wb') as f:
         cPickle.dump((data_loader.chars, data_loader.vocab), f)
-        
+
     model = Model(args)
+    cost_summ = tf.scalar_summary("loss", model.cost)
+    merged = tf.merge_all_summaries()
+
 
     with tf.Session() as sess:
         tf.initialize_all_variables().run()
+        writer = tf.train.SummaryWriter(args.save_dir, sess.graph_def)
         saver = tf.train.Saver(tf.all_variables())
         # restore model
         if args.init_from is not None:
@@ -96,6 +102,10 @@ def train(args):
                 x, y = data_loader.next_batch()
                 feed = {model.input_data: x, model.targets: y, model.initial_state: state}
                 train_loss, state, _ = sess.run([model.cost, model.final_state, model.train_op], feed)
+                result_summary = sess.run([merged,cost_summ], feed_dict=feed)
+                summary_str = result_summary[0]
+                acc = result_summary[1]
+                writer.add_summary(summary_str, e * data_loader.num_batches + b)
                 end = time.time()
                 print("{}/{} (epoch {}), train_loss = {:.3f}, time/batch = {:.3f}" \
                     .format(e * data_loader.num_batches + b,
@@ -106,6 +116,5 @@ def train(args):
                     checkpoint_path = os.path.join(args.save_dir, 'model.ckpt')
                     saver.save(sess, checkpoint_path, global_step = e * data_loader.num_batches + b)
                     print("model saved to {}".format(checkpoint_path))
-
 if __name__ == '__main__':
     main()
